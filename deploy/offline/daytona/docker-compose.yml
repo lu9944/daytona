@@ -47,6 +47,7 @@ services:
       - conf/daytona.env
     environment:
       - API_PORT=3003
+      - ENVIRONMENT=development
     networks:
       - daytona-network
     ports:

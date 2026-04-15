@@ -17,7 +17,9 @@ if [[ ! -f "$CONF_FILE" ]]; then
     error "install.conf not found at $CONF_FILE"
 fi
 
+set -a
 source "$CONF_FILE"
+set +a
 
 DAYTONA_HOME="${DAYTONA_BASE}/daytona"
 COMPOSE_FILES="-f docker-compose.yml"
@@ -35,6 +37,7 @@ info " Daytona ${DAYTONA_VERSION} Offline Installer"
 info "=========================================="
 info "Install directory : ${DAYTONA_HOME}"
 info "Service port      : ${DAYTONA_PORT}"
+info "Hostname          : ${DAYTONA_HOSTNAME}"
 info "External DB       : ${DAYTONA_EXTERNAL_DB}"
 info "External Redis    : ${DAYTONA_EXTERNAL_REDIS}"
 info "=========================================="
@@ -50,7 +53,6 @@ if command -v daytonactl &>/dev/null; then
     daytonactl uninstall 2>/dev/null || true
 fi
 
-# ---- Install Docker ----
 install_docker() {
     if command -v docker &>/dev/null && docker info &>/dev/null; then
         info "Docker is already installed and running."
@@ -100,7 +102,6 @@ install_docker_compose() {
     fi
 }
 
-# ---- SELinux ----
 disable_selinux() {
     if command -v getenforce &>/dev/null && [[ "$(getenforce)" != "Disabled" ]]; then
         warn "Disabling SELinux..."
@@ -110,7 +111,6 @@ disable_selinux() {
     fi
 }
 
-# ---- Firewall ----
 open_firewall_ports() {
     if systemctl is-active firewalld &>/dev/null; then
         info "Opening firewall ports..."
@@ -129,7 +129,6 @@ open_firewall_ports() {
     fi
 }
 
-# ---- Setup directories ----
 setup_directories() {
     info "Creating Daytona directory structure at ${DAYTONA_HOME}..."
     mkdir -p "${DAYTONA_HOME}"/{conf/dex,conf/otel,conf/pgadmin4,data,logs}
@@ -138,14 +137,9 @@ setup_directories() {
     cp -f "${SCRIPT_DIR}/daytona/docker-compose-db.yml" "${DAYTONA_HOME}/"
     cp -f "${SCRIPT_DIR}/daytona/docker-compose-redis.yml" "${DAYTONA_HOME}/"
 
-    cp -f "${SCRIPT_DIR}/daytona/conf/dex/config.yaml" "${DAYTONA_HOME}/conf/dex/"
     cp -f "${SCRIPT_DIR}/daytona/conf/otel/otel-collector-config.yaml" "${DAYTONA_HOME}/conf/otel/"
-    cp -f "${SCRIPT_DIR}/daytona/conf/pgadmin4/servers.json" "${DAYTONA_HOME}/conf/pgadmin4/"
-    cp -f "${SCRIPT_DIR}/daytona/conf/pgadmin4/pgpass" "${DAYTONA_HOME}/conf/pgadmin4/"
-    chmod 600 "${DAYTONA_HOME}/conf/pgadmin4/pgpass"
 }
 
-# ---- Render templates ----
 render_templates() {
     info "Rendering configuration templates..."
     if ! command -v envsubst &>/dev/null; then
@@ -154,13 +148,77 @@ render_templates() {
 
     envsubst < "${SCRIPT_DIR}/daytona/templates/daytona.env" > "${DAYTONA_HOME}/conf/daytona.env"
 
+    echo "DAYTONA_VERSION=${DAYTONA_VERSION}" >> "${DAYTONA_HOME}/conf/daytona.env"
+    echo "DAYTONA_PORT=${DAYTONA_PORT}" >> "${DAYTONA_HOME}/conf/daytona.env"
+
+    cat > "${DAYTONA_HOME}/.env" <<COMPOSEEOF
+DAYTONA_VERSION=${DAYTONA_VERSION}
+DAYTONA_PORT=${DAYTONA_PORT}
+DAYTONA_HOSTNAME=${DAYTONA_HOSTNAME}
+DAYTONA_DOCKER_SUBNET=${DAYTONA_DOCKER_SUBNET}
+S3_ACCESS_KEY=${S3_ACCESS_KEY}
+S3_SECRET_KEY=${S3_SECRET_KEY}
+MINIO_PORT=${MINIO_PORT}
+REGISTRY_ADMIN=${REGISTRY_ADMIN}
+REGISTRY_PASSWORD=${REGISTRY_PASSWORD}
+DB_PASSWORD=${DB_PASSWORD}
+DB_USERNAME=${DB_USERNAME}
+DB_DATABASE=${DB_DATABASE}
+COMPOSEEOF
+
+    envsubst > "${DAYTONA_HOME}/conf/dex/config.yaml" <<'DEXEOF'
+issuer: http://${DAYTONA_HOSTNAME}:5556/dex
+storage:
+  type: sqlite3
+  config:
+    file: /var/dex/dex.db
+
+web:
+  http: 0.0.0.0:5556
+  allowedOrigins: ['*']
+  allowedHeaders: ['x-requested-with']
+staticClients:
+  - id: daytona
+    redirectURIs:
+      - 'http://${DAYTONA_HOSTNAME}:3000'
+      - 'http://${DAYTONA_HOSTNAME}:3000/api/oauth2-redirect.html'
+      - 'http://${DAYTONA_HOSTNAME}:3009/callback'
+      - 'http://proxy.${DAYTONA_HOSTNAME}:4000/callback'
+    name: 'Daytona'
+    public: true
+enablePasswordDB: true
+staticPasswords:
+  - email: 'dev@daytona.io'
+    hash: '$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W'
+    username: 'admin'
+    userID: '1234'
+DEXEOF
+
+    envsubst > "${DAYTONA_HOME}/conf/pgadmin4/servers.json" <<'PGEOF'
+{
+  "Servers": {
+    "1": {
+      "Name": "Daytona",
+      "Group": "Servers",
+      "Host": "${DB_HOST}",
+      "Port": ${DB_PORT},
+      "MaintenanceDB": "postgres",
+      "Username": "${DB_USERNAME}",
+      "PassFile": "/pgpass"
+    }
+  }
+}
+PGEOF
+
+    echo "${DB_HOST}:${DB_PORT}:*:${DB_USERNAME}:${DB_PASSWORD}" > "${DAYTONA_HOME}/conf/pgadmin4/pgpass"
+    chmod 600 "${DAYTONA_HOME}/conf/pgadmin4/pgpass"
+
     if [[ "${UPGRADE_MODE}" == "true" && -f /tmp/daytona-env-backup ]]; then
         warn "Upgrade mode: merging preserved configuration..."
         mv /tmp/daytona-env-backup "${DAYTONA_HOME}/conf/daytona.env.preserved"
     fi
 }
 
-# ---- Load images ----
 load_images() {
     info "Loading Docker images..."
     for tar in "${SCRIPT_DIR}/images/"*.tar.gz; do
@@ -171,16 +229,50 @@ load_images() {
     done
 
     info "Tagging images with version ${DAYTONA_VERSION}..."
-    docker tag daytonaio/daytona-api:latest daytona/daytona-api:${DAYTONA_VERSION} 2>/dev/null || true
-    docker tag daytonaio/daytona-proxy:latest daytona/daytona-proxy:${DAYTONA_VERSION} 2>/dev/null || true
-    docker tag daytonaio/daytona-runner:latest daytona/daytona-runner:${DAYTONA_VERSION} 2>/dev/null || true
-    docker tag daytonaio/daytona-ssh-gateway:latest daytona/daytona-ssh-gateway:${DAYTONA_VERSION} 2>/dev/null || true
-    docker tag daytonaio/daytona-otel-collector:latest daytona/daytona-otel-collector:${DAYTONA_VERSION} 2>/dev/null || true
-    docker tag daytonaio/sandbox:${DAYTONA_VERSION} daytona/sandbox:${DAYTONA_VERSION} 2>/dev/null || true
-    docker tag daytonaio/sandbox:${DAYTONA_VERSION}-slim daytona/sandbox:${DAYTONA_VERSION}-slim 2>/dev/null || true
+    local missing=0
+    for svc in api proxy runner ssh-gateway otel-collector; do
+        if docker image inspect "daytona/daytona-${svc}:${DAYTONA_VERSION}" >/dev/null 2>&1; then
+            continue
+        fi
+        if docker image inspect "daytonaio/daytona-${svc}:latest" >/dev/null 2>&1; then
+            docker tag "daytonaio/daytona-${svc}:latest" "daytona/daytona-${svc}:${DAYTONA_VERSION}"
+        else
+            warn "Image daytona/daytona-${svc}:${DAYTONA_VERSION} not found after load!"
+            missing=$((missing + 1))
+        fi
+    done
+
+    for tag in "${DAYTONA_VERSION}" "${DAYTONA_VERSION}-slim"; do
+        if docker image inspect "daytonaio/sandbox:${tag}" >/dev/null 2>&1; then
+            docker tag "daytonaio/sandbox:${tag}" "daytona/sandbox:${tag}" 2>/dev/null || true
+        fi
+    done
+
+    if [[ $missing -gt 0 ]]; then
+        error "$missing required images are missing! Check image tar files."
+    fi
 }
 
-# ---- Install daytonactl ----
+push_sandbox_to_registry() {
+    info "Waiting for registry to be available..."
+    local attempts=0
+    while [[ $attempts -lt 30 ]]; do
+        if curl -sf http://127.0.0.1:6000/v2/_catalog >/dev/null 2>&1; then
+            break
+        fi
+        attempts=$((attempts + 1))
+        sleep 2
+    done
+
+    info "Pushing sandbox images to local registry..."
+    for tag in "${DAYTONA_VERSION}" "${DAYTONA_VERSION}-slim"; do
+        if docker image inspect "daytona/sandbox:${tag}" >/dev/null 2>&1; then
+            docker tag "daytona/sandbox:${tag}" "registry:6000/daytona/sandbox:${tag}" 2>/dev/null || true
+            docker push "registry:6000/daytona/sandbox:${tag}" 2>/dev/null || warn "Failed to push sandbox:${tag} to local registry"
+        fi
+    done
+}
+
 install_daytonactl() {
     info "Installing daytonactl management script..."
     cp -f "${SCRIPT_DIR}/daytonactl" /usr/local/bin/daytonactl
@@ -188,14 +280,12 @@ install_daytonactl() {
     sed -i "s|^DAYTONA_BASE=.*|DAYTONA_BASE=${DAYTONA_BASE}|" /usr/local/bin/daytonactl
 }
 
-# ---- Start services ----
 start_services() {
     info "Starting Daytona services..."
     cd "${DAYTONA_HOME}"
     docker compose ${COMPOSE_FILES} up -d
 }
 
-# ---- Health check ----
 health_check() {
     info "Performing health check (up to 30 attempts, 3s interval)..."
     local attempts=0
@@ -214,28 +304,26 @@ health_check() {
     return 1
 }
 
-# ---- Print access info ----
 print_info() {
     echo ""
     info "=========================================="
     info " Daytona installed successfully!"
     info "=========================================="
-    info "Dashboard    : http://<host-ip>:${DAYTONA_PORT}/dashboard"
-    info "API          : http://<host-ip>:${DAYTONA_PORT}"
-    info "Proxy        : http://<host-ip>:4000"
-    info "SSH Gateway  : ssh -p 2222 <token>@<host-ip>"
-    info "Dex (OIDC)   : http://<host-ip>:5556/dex"
-    info "MinIO        : http://<host-ip>:${MINIO_PORT}"
-    info "pgAdmin      : http://<host-ip>:5050"
-    info "Registry UI  : http://<host-ip>:5100"
-    info "Jaeger       : http://<host-ip>:16686"
-    info "MailDev      : http://<host-ip>:1080"
+    info "Dashboard    : http://${DAYTONA_HOSTNAME}:${DAYTONA_PORT}/dashboard"
+    info "API          : http://${DAYTONA_HOSTNAME}:${DAYTONA_PORT}"
+    info "Proxy        : http://${DAYTONA_HOSTNAME}:4000"
+    info "SSH Gateway  : ssh -p 2222 <token>@${DAYTONA_HOSTNAME}"
+    info "Dex (OIDC)   : http://${DAYTONA_HOSTNAME}:5556/dex"
+    info "MinIO        : http://${DAYTONA_HOSTNAME}:${MINIO_PORT}"
+    info "pgAdmin      : http://${DAYTONA_HOSTNAME}:5050"
+    info "Registry UI  : http://${DAYTONA_HOSTNAME}:5100"
+    info "Jaeger       : http://${DAYTONA_HOSTNAME}:16686"
+    info "MailDev      : http://${DAYTONA_HOSTNAME}:1080"
     info "------------------------------------------"
     info "Management: daytonactl {start|stop|restart|status|uninstall|version}"
     info "=========================================="
 }
 
-# ---- Main ----
 main() {
     install_docker
     install_docker_compose
@@ -246,6 +334,7 @@ main() {
     install_daytonactl
     open_firewall_ports
     start_services
+    push_sandbox_to_registry
     health_check
     print_info
 }

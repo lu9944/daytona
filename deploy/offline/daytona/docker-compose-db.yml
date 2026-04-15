@@ -16,3 +16,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  api:
+    depends_on:
+      db:
+        condition: service_healthy

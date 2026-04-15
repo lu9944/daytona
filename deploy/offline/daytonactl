@@ -12,11 +12,13 @@ if [[ -f "${DAYTONA_HOME}/docker-compose-redis.yml" ]]; then
     COMPOSE_FILES="${COMPOSE_FILES} -f docker-compose-redis.yml"
 fi
 
-if [[ -f "${DAYTONA_HOME}/conf/daytona.env" ]]; then
-    source "${DAYTONA_HOME}/conf/daytona.env"
+if [[ -f "${DAYTONA_HOME}/.env" ]]; then
+    set -a
+    source "${DAYTONA_HOME}/.env"
+    set +a
 fi
 
-DAYTONA_PORT="${PORT:-${DAYTONA_PORT:-3000}}"
+DAYTONA_PORT="${DAYTONA_PORT:-3000}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -80,8 +82,10 @@ cmd_uninstall() {
 }
 
 cmd_version() {
-    if [[ -f "${DAYTONA_HOME}/conf/daytona.env" ]]; then
-        grep '^DAYTONA_VERSION=' "${DAYTONA_HOME}/conf/daytona.env" 2>/dev/null | head -1 | cut -d= -f2 || echo "unknown"
+    if [[ -f "${DAYTONA_HOME}/.env" ]]; then
+        grep '^DAYTONA_VERSION=' "${DAYTONA_HOME}/.env" 2>/dev/null | head -1 | cut -d= -f2 || echo "unknown"
+    elif [[ -n "${DAYTONA_VERSION}" ]]; then
+        echo "${DAYTONA_VERSION}"
     else
         echo "unknown"
     fi

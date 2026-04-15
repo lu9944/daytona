@@ -10,3 +10,8 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  api:
+    depends_on:
+      redis:
+        condition: service_healthy
