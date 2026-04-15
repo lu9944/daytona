@@ -93,30 +93,30 @@ jobs:
           docker compose -f docker/docker-compose.yaml \
             -f docker/docker-compose.build.override.yaml \
             build
+          docker build -t daytonaio/daytona-otel-collector:latest \
+            -f apps/otel-collector/Dockerfile \
+            --target otel-collector .
 
       - name: Tag images for offline use
         run: |
-          docker tag daytonaio/daytona-api:latest daytona/daytona-api:${VERSION}
-          docker tag daytonaio/daytona-proxy:latest daytona/daytona-proxy:${VERSION}
-          docker tag daytonaio/daytona-runner:latest daytona/daytona-runner:${VERSION}
-          docker tag daytonaio/daytona-ssh-gateway:latest daytona/daytona-ssh-gateway:${VERSION}
-          docker tag daytonaio/daytona-otel-collector:latest daytona/daytona-otel-collector:${VERSION}
+          for img in api proxy runner ssh-gateway otel-collector; do
+            docker tag daytonaio/daytona-${img}:latest daytona/daytona-${img}:${VERSION} 2>/dev/null || \
+              echo "WARNING: daytonaio/daytona-${img}:latest not found, skipping tag"
+          done
 
       - name: Export self-built images
         run: |
           mkdir -p output
-          docker save \
-            daytona/daytona-api:${VERSION} \
-            daytona/daytona-proxy:${VERSION} \
-            daytona/daytona-runner:${VERSION} \
-            daytona/daytona-ssh-gateway:${VERSION} \
-            daytona/daytona-otel-collector:${VERSION} \
-            daytonaio/daytona-api:latest \
-            daytonaio/daytona-proxy:latest \
-            daytonaio/daytona-runner:latest \
-            daytonaio/daytona-ssh-gateway:latest \
-            daytonaio/daytona-otel-collector:latest \
-            | gzip > output/daytona-images.tar.gz
+          IMAGES=""
+          for img in api proxy runner ssh-gateway otel-collector; do
+            if docker image inspect daytona/daytona-${img}:${VERSION} >/dev/null 2>&1; then
+              IMAGES="$IMAGES daytona/daytona-${img}:${VERSION}"
+            fi
+            if docker image inspect daytonaio/daytona-${img}:latest >/dev/null 2>&1; then
+              IMAGES="$IMAGES daytonaio/daytona-${img}:latest"
+            fi
+          done
+          docker save $IMAGES | gzip > output/daytona-images.tar.gz
 
       - name: Upload self-built images
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
