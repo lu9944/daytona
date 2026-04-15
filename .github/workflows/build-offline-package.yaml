@@ -82,8 +82,11 @@ jobs:
       - name: Ensure go.work.sum exists
         run: touch go.work.sum
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build computer-use binary
+        run: |
+          mkdir -p dist/libs
+          cd libs/computer-use
+          GONOSUMDB=github.com/daytonaio/daytona go build -o ../../dist/libs/computer-use-amd64 main.go
 
       - name: Build Daytona self-built images
         run: |
