@@ -1,0 +1,155 @@
+#!/bin/bash
+set -e
+
+DAYTONA_BASE=/opt
+DAYTONA_HOME="${DAYTONA_BASE}/daytona"
+
+COMPOSE_FILES="-f docker-compose.yml"
+if [[ -f "${DAYTONA_HOME}/docker-compose-db.yml" ]]; then
+    COMPOSE_FILES="${COMPOSE_FILES} -f docker-compose-db.yml"
+fi
+if [[ -f "${DAYTONA_HOME}/docker-compose-redis.yml" ]]; then
+    COMPOSE_FILES="${COMPOSE_FILES} -f docker-compose-redis.yml"
+fi
+
+if [[ -f "${DAYTONA_HOME}/conf/daytona.env" ]]; then
+    source "${DAYTONA_HOME}/conf/daytona.env"
+fi
+
+DAYTONA_PORT="${PORT:-${DAYTONA_PORT:-3000}}"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+info()  { echo -e "${GREEN}[INFO]${NC} $*"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
+
+cmd_status() {
+    cd "${DAYTONA_HOME}"
+    echo "========================================="
+    echo " Daytona Service Status"
+    echo "========================================="
+    docker compose ${COMPOSE_FILES} ps
+    echo ""
+    echo "========================================="
+    echo " Disk Usage"
+    echo "========================================="
+    df -h "${DAYTONA_HOME}" 2>/dev/null || true
+    echo ""
+    echo "========================================="
+    echo " Docker Disk Usage"
+    echo "========================================="
+    docker system df 2>/dev/null || true
+}
+
+cmd_start() {
+    cd "${DAYTONA_HOME}"
+    info "Starting Daytona services..."
+    docker compose ${COMPOSE_FILES} up -d
+    cmd_health_check
+}
+
+cmd_stop() {
+    cd "${DAYTONA_HOME}"
+    info "Stopping Daytona services..."
+    docker compose ${COMPOSE_FILES} down
+}
+
+cmd_restart() {
+    cd "${DAYTONA_HOME}"
+    info "Restarting Daytona services..."
+    docker compose ${COMPOSE_FILES} down
+    docker compose ${COMPOSE_FILES} up -d
+    cmd_health_check
+}
+
+cmd_reload() {
+    cd "${DAYTONA_HOME}"
+    info "Reloading Daytona services..."
+    docker compose ${COMPOSE_FILES} up -d
+}
+
+cmd_uninstall() {
+    cd "${DAYTONA_HOME}"
+    info "Stopping and removing all containers and volumes..."
+    docker compose ${COMPOSE_FILES} down -v --remove-orphans 2>/dev/null || true
+    docker compose -f docker-compose.yml down -v --remove-orphans 2>/dev/null || true
+    info "All containers and volumes removed."
+}
+
+cmd_version() {
+    if [[ -f "${DAYTONA_HOME}/conf/daytona.env" ]]; then
+        grep '^DAYTONA_VERSION=' "${DAYTONA_HOME}/conf/daytona.env" 2>/dev/null | head -1 | cut -d= -f2 || echo "unknown"
+    else
+        echo "unknown"
+    fi
+}
+
+cmd_clear_images() {
+    info "Removing old Daytona images (not current version)..."
+    local current_version
+    current_version=$(cmd_version)
+    docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^daytona/' | grep -v "${current_version}" | while read -r img; do
+        docker rmi "$img" 2>/dev/null || true
+    done
+    docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^daytonaio/' | grep -v "${current_version}" | while read -r img; do
+        docker rmi "$img" 2>/dev/null || true
+    done
+    info "Old images cleared."
+}
+
+cmd_health_check() {
+    local attempts=0
+    local max_attempts=30
+    while [[ $attempts -lt $max_attempts ]]; do
+        if curl -sf "http://127.0.0.1:${DAYTONA_PORT}/api/config" >/dev/null 2>&1; then
+            info "Daytona is healthy!"
+            return 0
+        fi
+        attempts=$((attempts + 1))
+        info "Waiting for Daytona to start... (${attempts}/${max_attempts})"
+        sleep 3
+    done
+    warn "Daytona did not become healthy within the expected time."
+    return 1
+}
+
+cmd_logs() {
+    cd "${DAYTONA_HOME}"
+    docker compose ${COMPOSE_FILES} logs --tail=100 -f "${@:2}"
+}
+
+usage() {
+    echo "Usage: daytonactl {start|stop|restart|reload|status|uninstall|version|clear-images|logs}"
+    echo ""
+    echo "Commands:"
+    echo "  status        Show container status and disk usage"
+    echo "  start         Start all services"
+    echo "  stop          Stop all services"
+    echo "  restart       Restart all services"
+    echo "  reload        Reload (docker compose up -d)"
+    echo "  uninstall     Stop and remove containers and volumes"
+    echo "  version       Show installed version"
+    echo "  clear-images  Remove old version images"
+    echo "  logs [svc]    Follow logs (optional: service name)"
+}
+
+if [[ "$1" == "_get_base" ]]; then
+    echo "${DAYTONA_BASE}"
+    exit 0
+fi
+
+case "$1" in
+    status)        cmd_status ;;
+    start)         cmd_start ;;
+    stop)          cmd_stop ;;
+    restart)       cmd_restart ;;
+    reload)        cmd_reload ;;
+    uninstall)     cmd_uninstall ;;
+    version)       cmd_version ;;
+    clear-images)  cmd_clear_images ;;
+    logs)          cmd_logs "$@" ;;
+    *)             usage ;;
+esac

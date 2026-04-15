@@ -1,0 +1,268 @@
+name: Build Offline Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (format v0.0.1)'
+        required: true
+        default: 'v0.0.1'
+
+permissions: {}
+
+env:
+  VERSION: ${{ inputs.version }}
+  BUILDX_NO_DEFAULT_ATTESTATIONS: 1
+
+jobs:
+  prepare-docker-binaries:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Download Docker binaries
+        run: |
+          mkdir -p docker-bin/bin docker-bin/service
+          DOCKER_VER="28.0.4"
+          CONTAINERD_VER="2.0.5"
+          RUNC_VER="1.3.0"
+          COMPOSE_VER="2.35.0"
+
+          curl -sL "https://download.docker.com/linux/static/stable/x86_64/docker-${DOCKER_VER}.tgz" -o docker.tgz
+          tar xzvf docker.tgz --strip-components=1 -C docker-bin/bin/
+          rm docker.tgz
+
+          curl -sL "https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VER}/containerd-${CONTAINERD_VER}-linux-amd64.tar.gz" -o containerd.tar.gz
+          tar xzvf containerd.tar.gz -C docker-bin/bin/ --strip-components=1 bin/
+          rm containerd.tar.gz
+
+          curl -sL "https://github.com/opencontainers/runc/releases/download/v${RUNC_VER}/runc.amd64" -o docker-bin/bin/runc
+          chmod +x docker-bin/bin/runc
+
+          curl -sL "https://github.com/docker/compose/releases/download/v${COMPOSE_VER}/docker-compose-linux-x86_64" -o docker-bin/bin/docker-compose
+          chmod +x docker-bin/bin/docker-compose
+
+          cp deploy/offline/docker/service/docker.service docker-bin/service/docker.service
+
+      - name: Upload Docker binaries
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: docker-binaries
+          path: docker-bin/
+          retention-days: 3
+
+  build-self-images:
+    runs-on: [self-hosted, Linux, X64, github-actions-runner-amd64]
+    env:
+      NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+    steps:
+      - name: Validate version format
+        run: |
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
+            echo "::error::Invalid version format: $VERSION"
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-tags: true
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-toolchain
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb46852027223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: docker.io
+          username: daytonaio
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build Daytona self-built images
+        run: |
+          docker compose -f docker/docker-compose.yaml \
+            -f docker/docker-compose.build.override.yaml \
+            build
+
+      - name: Tag images for offline use
+        run: |
+          docker tag daytonaio/daytona-api:latest daytona/daytona-api:${VERSION}
+          docker tag daytonaio/daytona-proxy:latest daytona/daytona-proxy:${VERSION}
+          docker tag daytonaio/daytona-runner:latest daytona/daytona-runner:${VERSION}
+          docker tag daytonaio/daytona-ssh-gateway:latest daytona/daytona-ssh-gateway:${VERSION}
+          docker tag daytonaio/daytona-otel-collector:latest daytona/daytona-otel-collector:${VERSION}
+
+      - name: Export self-built images
+        run: |
+          mkdir -p output
+          docker save \
+            daytona/daytona-api:${VERSION} \
+            daytona/daytona-proxy:${VERSION} \
+            daytona/daytona-runner:${VERSION} \
+            daytona/daytona-ssh-gateway:${VERSION} \
+            daytona/daytona-otel-collector:${VERSION} \
+            daytonaio/daytona-api:latest \
+            daytonaio/daytona-proxy:latest \
+            daytonaio/daytona-runner:latest \
+            daytonaio/daytona-ssh-gateway:latest \
+            daytonaio/daytona-otel-collector:latest \
+            | gzip > output/daytona-images.tar.gz
+
+      - name: Upload self-built images
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: daytona-self-images
+          path: output/daytona-images.tar.gz
+          retention-days: 3
+
+  pull-infra-images:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pull third-party infrastructure images
+        run: |
+          docker pull postgres:18
+          docker pull redis:latest
+          docker pull dexidp/dex:v2.42.0
+          docker pull registry:2.8.2
+          docker pull joxit/docker-registry-ui:main
+          docker pull minio/minio:latest
+          docker pull maildev/maildev
+          docker pull jaegertracing/all-in-one:1.67.0
+          docker pull otel/opentelemetry-collector-contrib:0.138.0
+          docker pull dpage/pgadmin4:9.2.0
+
+      - name: Export infrastructure images
+        run: |
+          mkdir -p output
+          docker save \
+            postgres:18 \
+            redis:latest \
+            dexidp/dex:v2.42.0 \
+            registry:2.8.2 \
+            joxit/docker-registry-ui:main \
+            minio/minio:latest \
+            maildev/maildev \
+            jaegertracing/all-in-one:1.67.0 \
+            otel/opentelemetry-collector-contrib:0.138.0 \
+            dpage/pgadmin4:9.2.0 \
+            | gzip > output/infra-images.tar.gz
+
+      - name: Upload infrastructure images
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: infra-images
+          path: output/infra-images.tar.gz
+          retention-days: 3
+
+  build-sandbox-images:
+    runs-on: [self-hosted, Linux, X64, github-actions-runner-amd64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build sandbox images
+        run: |
+          SANDBOX_VER="${VERSION#v}"
+          docker build -t daytonaio/sandbox:${SANDBOX_VER} -t daytonaio/sandbox:${VERSION} \
+            -f images/sandbox/Dockerfile images/sandbox/
+          docker build -t daytonaio/sandbox:${SANDBOX_VER}-slim -t daytonaio/sandbox:${VERSION}-slim \
+            -f images/sandbox-slim/Dockerfile images/sandbox-slim/
+
+      - name: Export sandbox images
+        run: |
+          mkdir -p output
+          docker save \
+            daytonaio/sandbox:${VERSION} \
+            daytonaio/sandbox:${VERSION}-slim \
+            | gzip > output/sandbox-images.tar.gz
+
+      - name: Upload sandbox images
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sandbox-images
+          path: output/sandbox-images.tar.gz
+          retention-days: 3
+
+  package-offline-bundle:
+    needs: [prepare-docker-binaries, build-self-images, pull-infra-images, build-sandbox-images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          path: artifacts/
+
+      - name: Assemble offline package
+        run: |
+          PKG_NAME="daytona-${VERSION}-x86_64-offline-installer"
+          PKG_DIR="/tmp/${PKG_NAME}"
+          rm -rf "${PKG_DIR}"
+          mkdir -p "${PKG_DIR}"/{docker/bin,docker/service,daytona/templates,daytona/conf/dex,daytona/conf/otel,daytona/conf/pgadmin4,images}
+
+          cp deploy/offline/install.conf "${PKG_DIR}/"
+          sed -i "s/^DAYTONA_VERSION=.*/DAYTONA_VERSION=${VERSION}/" "${PKG_DIR}/install.conf"
+          cp deploy/offline/install.sh "${PKG_DIR}/"
+          cp deploy/offline/uninstall.sh "${PKG_DIR}/"
+          cp deploy/offline/daytonactl "${PKG_DIR}/"
+          chmod +x "${PKG_DIR}/install.sh" "${PKG_DIR}/uninstall.sh" "${PKG_DIR}/daytonactl"
+
+          cp -r artifacts/docker-binaries/bin/* "${PKG_DIR}/docker/bin/" 2>/dev/null || true
+          cp -r artifacts/docker-binaries/service/* "${PKG_DIR}/docker/service/" 2>/dev/null || true
+          cp deploy/offline/daytona/docker-compose.yml "${PKG_DIR}/daytona/"
+          cp deploy/offline/daytona/docker-compose-db.yml "${PKG_DIR}/daytona/"
+          cp deploy/offline/daytona/docker-compose-redis.yml "${PKG_DIR}/daytona/"
+          cp deploy/offline/daytona/templates/daytona.env "${PKG_DIR}/daytona/templates/"
+          cp deploy/offline/daytona/conf/dex/config.yaml "${PKG_DIR}/daytona/conf/dex/"
+          cp deploy/offline/daytona/conf/otel/otel-collector-config.yaml "${PKG_DIR}/daytona/conf/otel/"
+          cp deploy/offline/daytona/conf/pgadmin4/servers.json "${PKG_DIR}/daytona/conf/pgadmin4/"
+          cp deploy/offline/daytona/conf/pgadmin4/pgpass "${PKG_DIR}/daytona/conf/pgadmin4/"
+
+          cp artifacts/daytona-self-images/daytona-images.tar.gz "${PKG_DIR}/images/"
+          cp artifacts/infra-images/infra-images.tar.gz "${PKG_DIR}/images/"
+          cp artifacts/sandbox-images/sandbox-images.tar.gz "${PKG_DIR}/images/"
+
+          cd /tmp
+          tar czf "${PKG_NAME}.tar.gz" "${PKG_NAME}"
+          mkdir -p "${GITHUB_WORKSPACE}/output"
+          mv "${PKG_NAME}.tar.gz" "${GITHUB_WORKSPACE}/output/"
+          echo "Package size: $(du -h "${GITHUB_WORKSPACE}/output/${PKG_NAME}.tar.gz" | cut -f1)"
+
+      - name: Upload offline package artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: daytona-offline-installer
+          path: output/daytona-${{ inputs.version }}-x86_64-offline-installer.tar.gz
+          retention-days: 30
+
+      - name: Upload to GitHub Release
+        if: env.VERSION != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${VERSION}" 2>/dev/null; then
+            gh release upload "${VERSION}" \
+              "output/daytona-${VERSION}-x86_64-offline-installer.tar.gz" \
+              --clobber
+            echo "Uploaded to release ${VERSION}"
+          else
+            echo "Release ${VERSION} not found. Skipping upload."
+          fi

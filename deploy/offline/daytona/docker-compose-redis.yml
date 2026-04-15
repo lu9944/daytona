@@ -1,0 +1,12 @@
+name: daytona
+
+services:
+  redis:
+    image: redis:latest
+    networks:
+      - daytona-network
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10

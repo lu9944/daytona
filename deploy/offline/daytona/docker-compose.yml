@@ -1,0 +1,197 @@
+name: daytona
+
+services:
+  api:
+    image: daytona/daytona-api:${DAYTONA_VERSION}
+    ports:
+      - '${DAYTONA_PORT}:3000'
+    env_file:
+      - conf/daytona.env
+    environment:
+      - PORT=3000
+    networks:
+      - daytona-network
+    restart: always
+    privileged: true
+    depends_on:
+      - runner
+      - dex
+      - registry
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3000/api/config']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  proxy:
+    image: daytona/daytona-proxy:${DAYTONA_VERSION}
+    env_file:
+      - conf/daytona.env
+    environment:
+      - PROXY_PORT=4000
+    networks:
+      - daytona-network
+    ports:
+      - '4000:4000'
+    restart: always
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:4000/health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  runner:
+    image: daytona/daytona-runner:${DAYTONA_VERSION}
+    env_file:
+      - conf/daytona.env
+    environment:
+      - API_PORT=3003
+    networks:
+      - daytona-network
+    ports:
+      - '3003:3003'
+    privileged: true
+    restart: always
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:3003/health']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  ssh-gateway:
+    image: daytona/daytona-ssh-gateway:${DAYTONA_VERSION}
+    env_file:
+      - conf/daytona.env
+    environment:
+      - SSH_GATEWAY_PORT=2222
+    networks:
+      - daytona-network
+    ports:
+      - '2222:2222'
+    restart: always
+
+  otel-collector-exporter:
+    image: daytona/daytona-otel-collector:${DAYTONA_VERSION}
+    env_file:
+      - conf/daytona.env
+    networks:
+      - daytona-network
+    restart: always
+
+  dex:
+    image: dexidp/dex:v2.42.0
+    volumes:
+      - ./conf/dex/config.yaml:/etc/dex/config.yaml
+      - dex_db:/var/dex
+    entrypoint: ['sh', '-c', 'touch /var/dex/dex.db && exec dex serve /etc/dex/config.yaml']
+    networks:
+      - daytona-network
+    ports:
+      - '5556:5556'
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '--quiet', 'http://localhost:5556/dex/.well-known/openid-configuration']
+
+  registry:
+    image: registry:2.8.2
+    restart: always
+    environment:
+      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Origin: '[http://registry-ui.example.com]'
+      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Methods: '[HEAD,GET,OPTIONS,DELETE]'
+      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Credentials: '[true]'
+      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Headers: '[Authorization,Accept,Cache-Control]'
+      REGISTRY_HTTP_HEADERS_Access-Control-Expose-Headers: '[Docker-Content-Digest]'
+      REGISTRY_STORAGE_DELETE_ENABLED: 'true'
+      REGISTRY_HTTP_ADDR: registry:6000
+    volumes:
+      - registry:/var/lib/registry
+    networks:
+      - daytona-network
+    ports:
+      - '6000:6000'
+
+  registry-ui:
+    image: joxit/docker-registry-ui:main
+    restart: always
+    environment:
+      - SINGLE_REGISTRY=true
+      - REGISTRY_TITLE=Docker Registry UI
+      - DELETE_IMAGES=true
+      - SHOW_CONTENT_DIGEST=true
+      - NGINX_PROXY_PASS_URL=http://registry:6000
+      - SHOW_CATALOG_NB_TAGS=true
+      - CATALOG_MIN_BRANCHES=1
+      - CATALOG_MAX_BRANCHES=1
+      - TAGLIST_PAGE_SIZE=100
+      - REGISTRY_SECURED=false
+      - CATALOG_ELEMENTS_LIMIT=1000
+    networks:
+      - daytona-network
+    ports:
+      - '5100:80'
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY}
+      - MINIO_IDENTITY_STS_EXPIRY="24h"
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":${MINIO_PORT}"
+    networks:
+      - daytona-network
+    ports:
+      - '${MINIO_PORT}:${MINIO_PORT}'
+      - '9000:9000'
+
+  maildev:
+    image: maildev/maildev
+    networks:
+      - daytona-network
+    ports:
+      - '1080:1080'
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.67.0
+    networks:
+      - daytona-network
+    ports:
+      - '16686:16686'
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.138.0
+    volumes:
+      - ./conf/otel/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+    networks:
+      - daytona-network
+
+  pgadmin:
+    image: dpage/pgadmin4:9.2.0
+    entrypoint: ['sh', '-c', 'chmod 600 /pgpass && exec /entrypoint.sh']
+    environment:
+      PGADMIN_DEFAULT_EMAIL: dev@daytona.io
+      PGADMIN_DEFAULT_PASSWORD: pgadmin
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: 'False'
+    user: root
+    volumes:
+      - ./conf/pgadmin4/servers.json:/pgadmin4/servers.json
+      - ./conf/pgadmin4/pgpass:/pgpass
+    ports:
+      - '5050:80'
+    networks:
+      - daytona-network
+
+volumes:
+  registry: {}
+  minio_data: {}
+  db_data: {}
+  dex_db: {}
+
+networks:
+  daytona-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${DAYTONA_DOCKER_SUBNET}
