@@ -140,6 +140,7 @@ jobs:
           docker pull jaegertracing/all-in-one:1.67.0
           docker pull otel/opentelemetry-collector-contrib:0.138.0
           docker pull dpage/pgadmin4:9.2.0
+          docker pull nginx:alpine
 
       - name: Export infrastructure images
         run: |
@@ -155,6 +156,7 @@ jobs:
             jaegertracing/all-in-one:1.67.0 \
             otel/opentelemetry-collector-contrib:0.138.0 \
             dpage/pgadmin4:9.2.0 \
+            nginx:alpine \
             | gzip > output/infra-images.tar.gz
 
       - name: Upload infrastructure images
@@ -214,12 +216,25 @@ jobs:
         with:
           path: artifacts/
 
+      - name: Generate self-signed SSL certificate
+        run: |
+          mkdir -p ssl-output
+          openssl req -x509 -nodes -days 3650 \
+            -newkey rsa:2048 \
+            -keyout ssl-output/tls.key \
+            -out ssl-output/tls.crt \
+            -subj "/CN=*.code.bitzh.edu.cn" \
+            -addext "subjectAltName=DNS:code.bitzh.edu.cn,DNS:*.code.bitzh.edu.cn"
+          chmod 600 ssl-output/tls.key
+          echo "SSL certificate generated:"
+          openssl x509 -in ssl-output/tls.crt -noout -subject -ext subjectAltName
+
       - name: Assemble offline package
         run: |
           PKG_NAME="daytona-${VERSION}-x86_64-offline-installer"
           PKG_DIR="/tmp/${PKG_NAME}"
           rm -rf "${PKG_DIR}"
-          mkdir -p "${PKG_DIR}"/{docker/bin,docker/service,daytona/templates,daytona/conf/dex,daytona/conf/otel,daytona/conf/pgadmin4,images}
+          mkdir -p "${PKG_DIR}"/{docker/bin,docker/service,daytona/templates,daytona/conf/dex,daytona/conf/otel,daytona/conf/pgadmin4,daytona/conf/nginx,daytona/conf/ssl,images}
 
           cp deploy/offline/install.conf "${PKG_DIR}/"
           sed -i "s/^DAYTONA_VERSION=.*/DAYTONA_VERSION=${VERSION}/" "${PKG_DIR}/install.conf"
@@ -238,6 +253,11 @@ jobs:
           cp deploy/offline/daytona/conf/otel/otel-collector-config.yaml "${PKG_DIR}/daytona/conf/otel/"
           cp deploy/offline/daytona/conf/pgadmin4/servers.json "${PKG_DIR}/daytona/conf/pgadmin4/"
           cp deploy/offline/daytona/conf/pgadmin4/pgpass "${PKG_DIR}/daytona/conf/pgadmin4/"
+
+          cp deploy/offline/daytona/conf/nginx/nginx.conf "${PKG_DIR}/daytona/conf/nginx/"
+          cp ssl-output/tls.crt "${PKG_DIR}/daytona/conf/ssl/"
+          cp ssl-output/tls.key "${PKG_DIR}/daytona/conf/ssl/"
+          chmod 600 "${PKG_DIR}/daytona/conf/ssl/tls.key"
 
           cp artifacts/daytona-self-images/daytona-images.tar.gz "${PKG_DIR}/images/"
           cp artifacts/infra-images/infra-images.tar.gz "${PKG_DIR}/images/"

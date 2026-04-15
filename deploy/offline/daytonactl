@@ -18,8 +18,6 @@ if [[ -f "${DAYTONA_HOME}/.env" ]]; then
     set +a
 fi
 
-DAYTONA_PORT="${DAYTONA_PORT:-3000}"
-
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -108,7 +106,7 @@ cmd_health_check() {
     local attempts=0
     local max_attempts=30
     while [[ $attempts -lt $max_attempts ]]; do
-        if curl -sf "http://127.0.0.1:${DAYTONA_PORT}/api/config" >/dev/null 2>&1; then
+        if curl -sfk "https://127.0.0.1/api/config" >/dev/null 2>&1; then
             info "Daytona is healthy!"
             return 0
         fi

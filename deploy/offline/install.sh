@@ -36,7 +36,6 @@ info "=========================================="
 info " Daytona ${DAYTONA_VERSION} Offline Installer"
 info "=========================================="
 info "Install directory : ${DAYTONA_HOME}"
-info "Service port      : ${DAYTONA_PORT}"
 info "Hostname          : ${DAYTONA_HOSTNAME}"
 info "External DB       : ${DAYTONA_EXTERNAL_DB}"
 info "External Redis    : ${DAYTONA_EXTERNAL_REDIS}"
@@ -113,17 +112,18 @@ disable_selinux() {
 
 open_firewall_ports() {
     if systemctl is-active firewalld &>/dev/null; then
-        info "Opening firewall ports..."
-        firewall-cmd --permanent --add-port="${DAYTONA_PORT}/tcp" 2>/dev/null || true
-        firewall-cmd --permanent --add-port="4000/tcp" 2>/dev/null || true
+        info "Opening firewall ports 80/443 and service ports..."
+        firewall-cmd --permanent --add-port="80/tcp" 2>/dev/null || true
+        firewall-cmd --permanent --add-port="443/tcp" 2>/dev/null || true
         firewall-cmd --permanent --add-port="2222/tcp" 2>/dev/null || true
-        firewall-cmd --permanent --add-port="5556/tcp" 2>/dev/null || true
-        firewall-cmd --permanent --add-port="9001/tcp" 2>/dev/null || true
-        firewall-cmd --permanent --add-port="1080/tcp" 2>/dev/null || true
+        firewall-cmd --permanent --add-port="6000/tcp" 2>/dev/null || true
+        firewall-cmd --permanent --add-port="9000/tcp" 2>/dev/null || true
+        firewall-cmd --permanent --add-port="${MINIO_PORT}/tcp" 2>/dev/null || true
         firewall-cmd --permanent --add-port="5050/tcp" 2>/dev/null || true
         firewall-cmd --permanent --add-port="5100/tcp" 2>/dev/null || true
-        firewall-cmd --permanent --add-port="6000/tcp" 2>/dev/null || true
+        firewall-cmd --permanent --add-port="1080/tcp" 2>/dev/null || true
         firewall-cmd --permanent --add-port="16686/tcp" 2>/dev/null || true
+        firewall-cmd --permanent --add-port="3003/tcp" 2>/dev/null || true
         firewall-cmd --reload 2>/dev/null || true
         info "Firewall ports opened."
     fi
@@ -131,13 +131,37 @@ open_firewall_ports() {
 
 setup_directories() {
     info "Creating Daytona directory structure at ${DAYTONA_HOME}..."
-    mkdir -p "${DAYTONA_HOME}"/{conf/dex,conf/otel,conf/pgadmin4,data,logs}
+    mkdir -p "${DAYTONA_HOME}"/{conf/dex,conf/otel,conf/pgadmin4,conf/nginx,conf/ssl,data,logs}
 
     cp -f "${SCRIPT_DIR}/daytona/docker-compose.yml" "${DAYTONA_HOME}/"
     cp -f "${SCRIPT_DIR}/daytona/docker-compose-db.yml" "${DAYTONA_HOME}/"
     cp -f "${SCRIPT_DIR}/daytona/docker-compose-redis.yml" "${DAYTONA_HOME}/"
 
     cp -f "${SCRIPT_DIR}/daytona/conf/otel/otel-collector-config.yaml" "${DAYTONA_HOME}/conf/otel/"
+
+    if [[ -f "${SCRIPT_DIR}/daytona/conf/nginx/nginx.conf" ]]; then
+        cp -f "${SCRIPT_DIR}/daytona/conf/nginx/nginx.conf" "${DAYTONA_HOME}/conf/nginx/"
+        info "Nginx configuration copied."
+    else
+        warn "nginx.conf not found in package, skipping."
+    fi
+
+    if [[ -f "${SCRIPT_DIR}/daytona/conf/ssl/tls.crt" && -f "${SCRIPT_DIR}/daytona/conf/ssl/tls.key" ]]; then
+        cp -f "${SCRIPT_DIR}/daytona/conf/ssl/tls.crt" "${DAYTONA_HOME}/conf/ssl/"
+        cp -f "${SCRIPT_DIR}/daytona/conf/ssl/tls.key" "${DAYTONA_HOME}/conf/ssl/"
+        chmod 600 "${DAYTONA_HOME}/conf/ssl/tls.key"
+        info "SSL certificate copied."
+    else
+        warn "SSL certificate not found in package, generating self-signed certificate..."
+        openssl req -x509 -nodes -days 3650 \
+            -newkey rsa:2048 \
+            -keyout "${DAYTONA_HOME}/conf/ssl/tls.key" \
+            -out "${DAYTONA_HOME}/conf/ssl/tls.crt" \
+            -subj "/CN=*.code.bitzh.edu.cn" \
+            -addext "subjectAltName=DNS:code.bitzh.edu.cn,DNS:*.code.bitzh.edu.cn" 2>/dev/null
+        chmod 600 "${DAYTONA_HOME}/conf/ssl/tls.key"
+        info "Self-signed SSL certificate generated."
+    fi
 }
 
 render_templates() {
@@ -149,11 +173,9 @@ render_templates() {
     envsubst < "${SCRIPT_DIR}/daytona/templates/daytona.env" > "${DAYTONA_HOME}/conf/daytona.env"
 
     echo "DAYTONA_VERSION=${DAYTONA_VERSION}" >> "${DAYTONA_HOME}/conf/daytona.env"
-    echo "DAYTONA_PORT=${DAYTONA_PORT}" >> "${DAYTONA_HOME}/conf/daytona.env"
 
     cat > "${DAYTONA_HOME}/.env" <<COMPOSEEOF
 DAYTONA_VERSION=${DAYTONA_VERSION}
-DAYTONA_PORT=${DAYTONA_PORT}
 DAYTONA_HOSTNAME=${DAYTONA_HOSTNAME}
 DAYTONA_DOCKER_SUBNET=${DAYTONA_DOCKER_SUBNET}
 S3_ACCESS_KEY=${S3_ACCESS_KEY}
@@ -167,7 +189,7 @@ DB_DATABASE=${DB_DATABASE}
 COMPOSEEOF
 
     envsubst > "${DAYTONA_HOME}/conf/dex/config.yaml" <<'DEXEOF'
-issuer: http://${DAYTONA_HOSTNAME}:5556/dex
+issuer: https://${DAYTONA_HOSTNAME}/dex
 storage:
   type: sqlite3
   config:
@@ -180,10 +202,9 @@ web:
 staticClients:
   - id: daytona
     redirectURIs:
-      - 'http://${DAYTONA_HOSTNAME}:3000'
-      - 'http://${DAYTONA_HOSTNAME}:3000/api/oauth2-redirect.html'
-      - 'http://${DAYTONA_HOSTNAME}:3009/callback'
-      - 'http://proxy.${DAYTONA_HOSTNAME}:4000/callback'
+      - 'https://${DAYTONA_HOSTNAME}'
+      - 'https://${DAYTONA_HOSTNAME}/api/oauth2-redirect.html'
+      - 'https://${DAYTONA_HOSTNAME}:3009/callback'
     name: 'Daytona'
     public: true
 enablePasswordDB: true
@@ -291,7 +312,7 @@ health_check() {
     local attempts=0
     local max_attempts=30
     while [[ $attempts -lt $max_attempts ]]; do
-        if curl -sf "http://127.0.0.1:${DAYTONA_PORT}/api/config" >/dev/null 2>&1; then
+        if curl -sfk "https://127.0.0.1/api/config" >/dev/null 2>&1; then
             info "Daytona is healthy!"
             return 0
         fi
@@ -309,11 +330,10 @@ print_info() {
     info "=========================================="
     info " Daytona installed successfully!"
     info "=========================================="
-    info "Dashboard    : http://${DAYTONA_HOSTNAME}:${DAYTONA_PORT}/dashboard"
-    info "API          : http://${DAYTONA_HOSTNAME}:${DAYTONA_PORT}"
-    info "Proxy        : http://${DAYTONA_HOSTNAME}:4000"
+    info "Dashboard    : https://${DAYTONA_HOSTNAME}/dashboard"
+    info "API          : https://${DAYTONA_HOSTNAME}"
+    info "Dex (OIDC)   : https://${DAYTONA_HOSTNAME}/dex"
     info "SSH Gateway  : ssh -p 2222 <token>@${DAYTONA_HOSTNAME}"
-    info "Dex (OIDC)   : http://${DAYTONA_HOSTNAME}:5556/dex"
     info "MinIO        : http://${DAYTONA_HOSTNAME}:${MINIO_PORT}"
     info "pgAdmin      : http://${DAYTONA_HOSTNAME}:5050"
     info "Registry UI  : http://${DAYTONA_HOSTNAME}:5100"
