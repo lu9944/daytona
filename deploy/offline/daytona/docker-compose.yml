@@ -24,7 +24,7 @@ services:
       - dex
     restart: always
     healthcheck:
-      test: ['CMD-SHELL', 'wget --no-check-certificate --spider --quiet https://localhost/ || exit 1']
+      test: ['CMD-SHELL', 'wget -qO /dev/null --no-check-certificate https://127.0.0.1/ 2>/dev/null || exit 1']
       interval: 10s
       timeout: 5s
       retries: 10
@@ -97,7 +97,7 @@ services:
     privileged: true
     restart: always
     healthcheck:
-      test: ['CMD', 'curl', '-f', 'http://localhost:3003/health']
+      test: ['CMD', 'curl', '-sf', 'http://localhost:3003/']
       interval: 10s
       timeout: 5s
       retries: 10
