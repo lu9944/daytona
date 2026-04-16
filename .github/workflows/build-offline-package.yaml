@@ -310,6 +310,8 @@ jobs:
             set net:timeout 30;
             set net:reconnect-interval 5;
             set net:max-retries 5;
+            set xfer:log true;
+            set xfer:log-period 30;
             open -p ${FTP_PORT} ${FTP_HOST};
             user ${FTP_USER} ${FTP_PASS};
             mkdir -p daytona-offline;
