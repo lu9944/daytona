@@ -289,3 +289,31 @@ jobs:
           else
             echo "Release ${VERSION} not found. Skipping upload."
           fi
+
+      - name: Upload to FTP server
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_PORT: ${{ secrets.FTP_PORT }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+        run: |
+          sudo apt-get install -y lftp >/dev/null 2>&1
+          PKG_FILE="output/daytona-${VERSION}-x86_64-offline-installer.tar.gz"
+          if [[ ! -f "$PKG_FILE" ]]; then
+            echo "ERROR: Package file not found: $PKG_FILE"
+            exit 1
+          fi
+          echo "Uploading $(basename "$PKG_FILE") ($(du -h "$PKG_FILE" | cut -f1)) to FTP..."
+          lftp -e "
+            set ssl:verify-certificate no;
+            set net:timeout 30;
+            set net:reconnect-interval 5;
+            set net:max-retries 5;
+            open -p ${FTP_PORT} ${FTP_HOST};
+            user ${FTP_USER} ${FTP_PASS};
+            mkdir -p daytona-offline;
+            cd daytona-offline;
+            put ${PKG_FILE};
+            bye
+          "
+          echo "FTP upload complete."
