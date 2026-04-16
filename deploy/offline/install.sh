@@ -131,13 +131,16 @@ open_firewall_ports() {
 
 setup_directories() {
     info "Creating Daytona directory structure at ${DAYTONA_HOME}..."
-    mkdir -p "${DAYTONA_HOME}"/{conf/dex,conf/otel,conf/pgadmin4,conf/nginx,conf/ssl,data,logs}
+    mkdir -p "${DAYTONA_HOME}"/{conf/dex,conf/otel,conf/pgadmin4,conf/nginx,conf/ssl,conf/registry,data,logs}
 
     cp -f "${SCRIPT_DIR}/daytona/docker-compose.yml" "${DAYTONA_HOME}/"
     cp -f "${SCRIPT_DIR}/daytona/docker-compose-db.yml" "${DAYTONA_HOME}/"
     cp -f "${SCRIPT_DIR}/daytona/docker-compose-redis.yml" "${DAYTONA_HOME}/"
 
     cp -f "${SCRIPT_DIR}/daytona/conf/otel/otel-collector-config.yaml" "${DAYTONA_HOME}/conf/otel/"
+    cp -f "${SCRIPT_DIR}/daytona/conf/otel/collector-config.yaml" "${DAYTONA_HOME}/conf/otel/" 2>/dev/null || true
+
+    cp -f "${SCRIPT_DIR}/daytona/conf/registry/config.yml" "${DAYTONA_HOME}/conf/registry/" 2>/dev/null || true
 
     if [[ -f "${SCRIPT_DIR}/daytona/conf/nginx/nginx.conf" ]]; then
         cp -f "${SCRIPT_DIR}/daytona/conf/nginx/nginx.conf" "${DAYTONA_HOME}/conf/nginx/"
@@ -186,6 +189,8 @@ REGISTRY_PASSWORD=${REGISTRY_PASSWORD}
 DB_PASSWORD=${DB_PASSWORD}
 DB_USERNAME=${DB_USERNAME}
 DB_DATABASE=${DB_DATABASE}
+REDIS_HOST=${REDIS_HOST}
+REDIS_PORT=${REDIS_PORT}
 COMPOSEEOF
 
     envsubst > "${DAYTONA_HOME}/conf/dex/config.yaml" <<'DEXEOF'

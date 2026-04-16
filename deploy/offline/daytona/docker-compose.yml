@@ -9,6 +9,13 @@ services:
     volumes:
       - ./conf/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./conf/ssl:/etc/nginx/ssl:ro
+    environment:
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
     depends_on:
@@ -28,6 +35,12 @@ services:
       - conf/daytona.env
     environment:
       - PORT=3000
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
     restart: always
@@ -49,6 +62,12 @@ services:
       - conf/daytona.env
     environment:
       - PROXY_PORT=4000
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
     restart: always
@@ -65,6 +84,12 @@ services:
     environment:
       - API_PORT=3003
       - ENVIRONMENT=development
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
     ports:
@@ -83,6 +108,12 @@ services:
       - conf/daytona.env
     environment:
       - SSH_GATEWAY_PORT=2222
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
     ports:
@@ -93,6 +124,15 @@ services:
     image: daytona/daytona-otel-collector:${DAYTONA_VERSION}
     env_file:
       - conf/daytona.env
+    volumes:
+      - ./conf/otel/collector-config.yaml:/otelcol/collector-config.yaml
+    environment:
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
     restart: always
@@ -102,6 +142,13 @@ services:
     volumes:
       - ./conf/dex/config.yaml:/etc/dex/config.yaml
       - dex_db:/var/dex
+    environment:
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     entrypoint: ['sh', '-c', 'touch /var/dex/dex.db && exec dex serve /etc/dex/config.yaml']
     networks:
       - daytona-network
@@ -111,16 +158,16 @@ services:
   registry:
     image: registry:2.8.2
     restart: always
-    environment:
-      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Origin: '[*]'
-      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Methods: '[HEAD,GET,OPTIONS,DELETE]'
-      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Credentials: '[true]'
-      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Headers: '[Authorization,Accept,Cache-Control]'
-      REGISTRY_HTTP_HEADERS_Access-Control-Expose-Headers: '[Docker-Content-Digest]'
-      REGISTRY_STORAGE_DELETE_ENABLED: 'true'
-      REGISTRY_HTTP_ADDR: registry:6000
     volumes:
       - registry:/var/lib/registry
+      - ./conf/registry/config.yml:/etc/docker/registry/config.yml
+    environment:
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
     ports:
@@ -141,6 +188,12 @@ services:
       - TAGLIST_PAGE_SIZE=100
       - REGISTRY_SECURED=false
       - CATALOG_ELEMENTS_LIMIT=1000
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
     ports:
@@ -152,6 +205,12 @@ services:
       - MINIO_ROOT_USER=${S3_ACCESS_KEY}
       - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY}
       - MINIO_IDENTITY_STS_EXPIRY="24h"
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     volumes:
       - minio_data:/data
     command: server /data --console-address ":${MINIO_PORT}"
@@ -163,6 +222,13 @@ services:
 
   maildev:
     image: maildev/maildev
+    environment:
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
     ports:
@@ -170,6 +236,13 @@ services:
 
   jaeger:
     image: jaegertracing/all-in-one:1.67.0
+    environment:
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
     ports:
@@ -179,6 +252,13 @@ services:
     image: otel/opentelemetry-collector-contrib:0.138.0
     volumes:
       - ./conf/otel/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+    environment:
+      - no_proxy=
+      - NO_PROXY=
+      - http_proxy=
+      - https_proxy=
+      - HTTP_PROXY=
+      - HTTPS_PROXY=
     networks:
       - daytona-network
 

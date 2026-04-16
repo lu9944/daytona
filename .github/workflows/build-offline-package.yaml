@@ -251,6 +251,7 @@ jobs:
           cp deploy/offline/daytona/templates/daytona.env "${PKG_DIR}/daytona/templates/"
           cp deploy/offline/daytona/conf/dex/config.yaml "${PKG_DIR}/daytona/conf/dex/"
           cp deploy/offline/daytona/conf/otel/otel-collector-config.yaml "${PKG_DIR}/daytona/conf/otel/"
+          cp deploy/offline/daytona/conf/otel/collector-config.yaml "${PKG_DIR}/daytona/conf/otel/" 2>/dev/null || true
           cp deploy/offline/daytona/conf/pgadmin4/servers.json "${PKG_DIR}/daytona/conf/pgadmin4/"
           cp deploy/offline/daytona/conf/pgadmin4/pgpass "${PKG_DIR}/daytona/conf/pgadmin4/"
 
