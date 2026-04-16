@@ -1,0 +1,54 @@
+name: Upload to FTP
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version (e.g. v0.0.9)'
+        required: true
+      run-id:
+        description: 'Source run ID (leave empty to use latest successful build)'
+        required: false
+
+permissions: {}
+
+jobs:
+  upload-to-ftp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact from previous run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: daytona-offline-installer
+          path: output/
+          run-id: ${{ inputs.run-id || '' }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify and upload via FTP
+        env:
+          FTP_HOST: ${{ secrets.FTP_HOST }}
+          FTP_PORT: ${{ secrets.FTP_PORT }}
+          FTP_USER: ${{ secrets.FTP_USER }}
+          FTP_PASS: ${{ secrets.FTP_PASS }}
+        run: |
+          ls -lh output/
+          PKG_FILE=$(ls output/daytona-*-offline-installer.tar.gz 2>/dev/null | head -1)
+          if [[ -z "$PKG_FILE" ]]; then
+            echo "ERROR: No offline installer tar.gz found in output/"
+            exit 1
+          fi
+          echo "Found: $(basename "$PKG_FILE") ($(du -h "$PKG_FILE" | cut -f1))"
+
+          sudo apt-get install -y lftp >/dev/null 2>&1
+          lftp -e "
+            set ssl:verify-certificate no;
+            set net:timeout 30;
+            set net:max-retries 5;
+            open -p ${FTP_PORT} ${FTP_HOST};
+            user ${FTP_USER} ${FTP_PASS};
+            mkdir -p daytona-offline;
+            cd daytona-offline;
+            put ${PKG_FILE};
+            bye
+          "
+          echo "FTP upload complete."
