@@ -234,7 +234,7 @@ jobs:
           PKG_NAME="daytona-${VERSION}-x86_64-offline-installer"
           PKG_DIR="/tmp/${PKG_NAME}"
           rm -rf "${PKG_DIR}"
-          mkdir -p "${PKG_DIR}"/{docker/bin,docker/service,daytona/templates,daytona/conf/dex,daytona/conf/otel,daytona/conf/pgadmin4,daytona/conf/nginx,daytona/conf/ssl,images}
+          mkdir -p "${PKG_DIR}"/{docker/bin,docker/service,daytona/templates,daytona/conf/dex,daytona/conf/otel,daytona/conf/pgadmin4,daytona/conf/nginx,daytona/conf/registry,daytona/conf/ssl,images}
 
           cp deploy/offline/install.conf "${PKG_DIR}/"
           sed -i "s/^DAYTONA_VERSION=.*/DAYTONA_VERSION=${VERSION}/" "${PKG_DIR}/install.conf"
@@ -256,6 +256,7 @@ jobs:
           cp deploy/offline/daytona/conf/pgadmin4/pgpass "${PKG_DIR}/daytona/conf/pgadmin4/"
 
           cp deploy/offline/daytona/conf/nginx/nginx.conf "${PKG_DIR}/daytona/conf/nginx/"
+          cp deploy/offline/daytona/conf/registry/config.yml "${PKG_DIR}/daytona/conf/registry/"
           cp ssl-output/tls.crt "${PKG_DIR}/daytona/conf/ssl/"
           cp ssl-output/tls.key "${PKG_DIR}/daytona/conf/ssl/"
           chmod 600 "${PKG_DIR}/daytona/conf/ssl/tls.key"
