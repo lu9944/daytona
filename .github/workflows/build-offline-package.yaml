@@ -189,16 +189,23 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build sandbox-slim image only
+      - name: Build sandbox images
         run: |
           SANDBOX_VER="${VERSION#v}"
+          docker build -t daytonaio/sandbox:${SANDBOX_VER} -t daytonaio/sandbox:${VERSION} \
+            -f images/sandbox/Dockerfile images/sandbox/
           docker build -t daytonaio/sandbox:${SANDBOX_VER}-slim -t daytonaio/sandbox:${VERSION}-slim \
             -f images/sandbox-slim/Dockerfile images/sandbox-slim/
 
-      - name: Export sandbox-slim image
+      - name: Export sandbox images to /tmp
         run: |
+          mkdir -p /tmp/sandbox-output
+          docker save \
+            daytonaio/sandbox:${VERSION} \
+            daytonaio/sandbox:${VERSION}-slim \
+            | gzip > /tmp/sandbox-output/sandbox-images.tar.gz
           mkdir -p output
-          docker save daytonaio/sandbox:${VERSION}-slim | gzip > output/sandbox-images.tar.gz
+          mv /tmp/sandbox-output/sandbox-images.tar.gz output/
 
       - name: Upload sandbox images
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
