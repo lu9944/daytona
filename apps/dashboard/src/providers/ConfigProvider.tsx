@@ -31,8 +31,7 @@ export function ConfigProvider(props: Props) {
   })
 
   const oidcConfig: AuthProviderProps = useMemo(() => {
-    const isLocalhost = window.location.hostname === 'localhost'
-    const stateStore = isLocalhost ? window.sessionStorage : new InMemoryWebStorage()
+    const stateStore = window.sessionStorage
 
     return {
       authority: config.oidc.issuer,
@@ -45,11 +44,8 @@ export function ConfigProvider(props: Props) {
       staleStateAgeInSeconds: 60,
       accessTokenExpiringNotificationTimeInSeconds: 290,
       userStore: new WebStorageStateStore({ store: stateStore }),
-      onSigninCallback: (user) => {
-        const state = user?.state as { returnTo?: string } | undefined
-        const targetUrl = state?.returnTo || RoutePath.DASHBOARD
-        window.history.replaceState({}, '', targetUrl)
-        window.dispatchEvent(new PopStateEvent('popstate'))
+      onSigninCallback: () => {
+        window.location.replace(window.location.origin + RoutePath.DASHBOARD)
       },
       post_logout_redirect_uri: window.location.origin,
     }

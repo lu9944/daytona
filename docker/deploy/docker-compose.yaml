@@ -1,0 +1,268 @@
+name: daytona
+services:
+  api:
+    image: daytonaio/daytona-api:latest
+    environment:
+      - OTEL_ENABLED=false
+      - DEFAULT_SNAPSHOT=daytonaio/sandbox:0.5.0-slim
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-supersecretkey}
+      - ENCRYPTION_SALT=${ENCRYPTION_SALT:-supersecretsalt}
+      - NODE_ENV=production
+      - PORT=3000
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USERNAME=${DB_USERNAME:-daytona}
+      - DB_PASSWORD=${DB_PASSWORD:-daytona}
+      - DB_DATABASE=${DB_DATABASE:-daytona}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-daytona}
+      - OIDC_ISSUER_BASE_URL=http://keycloak:8080/realms/daytona
+      - PUBLIC_OIDC_DOMAIN=https://${KEYCLOAK_DOMAIN:-auth.example.com}/realms/daytona
+      - OIDC_AUDIENCE=${OIDC_CLIENT_ID:-daytona}
+      - OIDC_MANAGEMENT_API_ENABLED=
+      - OIDC_MANAGEMENT_API_CLIENT_ID=
+      - OIDC_MANAGEMENT_API_CLIENT_SECRET=
+      - OIDC_MANAGEMENT_API_AUDIENCE=
+      - DASHBOARD_URL=https://${DAYTONA_DOMAIN:-daytona.example.com}/dashboard
+      - DASHBOARD_BASE_API_URL=https://${DAYTONA_DOMAIN:-daytona.example.com}
+      - POSTHOG_API_KEY=
+      - POSTHOG_HOST=
+      - POSTHOG_ENVIRONMENT=production
+      - TRANSIENT_REGISTRY_URL=http://registry:6000
+      - TRANSIENT_REGISTRY_ADMIN=admin
+      - TRANSIENT_REGISTRY_PASSWORD=password
+      - TRANSIENT_REGISTRY_PROJECT_ID=daytona
+      - INTERNAL_REGISTRY_URL=http://registry:6000
+      - INTERNAL_REGISTRY_ADMIN=admin
+      - INTERNAL_REGISTRY_PASSWORD=password
+      - INTERNAL_REGISTRY_PROJECT_ID=daytona
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SMTP_SECURE=${SMTP_SECURE:-}
+      - SMTP_EMAIL_FROM=${SMTP_EMAIL_FROM:-Daytona <no-reply@${DAYTONA_DOMAIN:-daytona.example.com}>}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_STS_ENDPOINT=http://minio:9000/minio/v1/assume-role
+      - S3_REGION=us-east-1
+      - S3_ACCESS_KEY=minioadmin
+      - S3_SECRET_KEY=minioadmin
+      - S3_DEFAULT_BUCKET=daytona
+      - S3_ACCOUNT_ID=/
+      - S3_ROLE_NAME=/
+      - ENVIRONMENT=production
+      - MAX_AUTO_ARCHIVE_INTERVAL=43200
+      - MAINTENANCE_MODE=false
+      - PROXY_DOMAIN=${PROXY_DOMAIN:-proxy.daytona.example.com}
+      - PROXY_PROTOCOL=https
+      - PROXY_API_KEY=${PROXY_API_KEY:-super_secret_key}
+      - PROXY_TEMPLATE_URL=https://{{PORT}}-{{sandboxId}}.${PROXY_DOMAIN:-proxy.daytona.example.com}
+      - DEFAULT_RUNNER_DOMAIN=runner
+      - DEFAULT_RUNNER_API_URL=http://runner:3003
+      - DEFAULT_RUNNER_PROXY_URL=http://runner:3003
+      - DEFAULT_RUNNER_API_KEY=${RUNNER_API_KEY:-secret_api_token}
+      - DEFAULT_RUNNER_CPU=${RUNNER_CPU:-4}
+      - DEFAULT_RUNNER_MEMORY=${RUNNER_MEMORY:-8}
+      - DEFAULT_RUNNER_DISK=${RUNNER_DISK:-50}
+      - DEFAULT_RUNNER_NAME=default
+      - DEFAULT_REGION_ID=us
+      - DEFAULT_REGION_NAME=us
+      - DEFAULT_REGION_ENFORCE_QUOTAS=false
+      - DEFAULT_ORG_QUOTA_TOTAL_CPU_QUOTA=10000
+      - DEFAULT_ORG_QUOTA_TOTAL_MEMORY_QUOTA=10000
+      - DEFAULT_ORG_QUOTA_TOTAL_DISK_QUOTA=100000
+      - DEFAULT_ORG_QUOTA_MAX_CPU_PER_SANDBOX=100
+      - DEFAULT_ORG_QUOTA_MAX_MEMORY_PER_SANDBOX=100
+      - DEFAULT_ORG_QUOTA_MAX_DISK_PER_SANDBOX=1000
+      - DEFAULT_ORG_QUOTA_SNAPSHOT_QUOTA=1000
+      - DEFAULT_ORG_QUOTA_MAX_SNAPSHOT_SIZE=1000
+      - DEFAULT_ORG_QUOTA_VOLUME_QUOTA=10000
+      - SSH_GATEWAY_API_KEY=${SSH_GATEWAY_API_KEY:-ssh_secret_api_token}
+      - SSH_GATEWAY_COMMAND=ssh -p 2222 {{TOKEN}}@${DAYTONA_DOMAIN:-daytona.example.com}
+      - SSH_GATEWAY_URL=${DAYTONA_DOMAIN:-daytona.example.com}:2222
+      - RUNNER_DECLARATIVE_BUILD_SCORE_THRESHOLD=10
+      - RUNNER_AVAILABILITY_SCORE_THRESHOLD=10
+      - RUNNER_START_SCORE_THRESHOLD=3
+      - SKIP_USER_EMAIL_VERIFICATION=true
+      - RUN_MIGRATIONS=true
+      - HEALTH_CHECK_API_KEY=${HEALTH_CHECK_API_KEY:-supersecretkey}
+    networks:
+      - daytona-network
+    restart: always
+    privileged: true
+    depends_on:
+      db:
+        condition: service_started
+      runner:
+        condition: service_started
+      redis:
+        condition: service_started
+      keycloak:
+        condition: service_healthy
+
+  proxy:
+    image: daytonaio/daytona-proxy:latest
+    environment:
+      - DAYTONA_API_URL=http://api:3000/api
+      - PROXY_PORT=4000
+      - PROXY_API_KEY=${PROXY_API_KEY:-super_secret_key}
+      - PROXY_PROTOCOL=https
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-daytona}
+      - OIDC_CLIENT_SECRET=
+      - OIDC_DOMAIN=http://keycloak:8080/realms/daytona
+      - OIDC_PUBLIC_DOMAIN=https://${KEYCLOAK_DOMAIN:-auth.example.com}/realms/daytona
+      - OIDC_AUDIENCE=${OIDC_CLIENT_ID:-daytona}
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - TOOLBOX_ONLY_MODE=false
+      - PREVIEW_WARNING_ENABLED=false
+    networks:
+      - daytona-network
+    restart: always
+
+  runner:
+    image: daytonaio/daytona-runner:latest
+    environment:
+      - ENVIRONMENT=production
+      - API_PORT=3003
+      - DAYTONA_RUNNER_TOKEN=${RUNNER_API_KEY:-secret_api_token}
+      - LOG_FILE_PATH=/home/daytona/runner/runner.log
+      - RESOURCE_LIMITS_DISABLED=true
+      - AWS_ENDPOINT_URL=http://minio:9000
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+      - AWS_DEFAULT_BUCKET=daytona
+      - DAYTONA_API_URL=http://api:3000/api
+      - RUNNER_DOMAIN=runner
+      - SSH_GATEWAY_ENABLE=true
+      - INTER_SANDBOX_NETWORK_ENABLED=false
+    networks:
+      - daytona-network
+    privileged: true
+    restart: always
+
+  ssh-gateway:
+    image: daytonaio/daytona-ssh-gateway:latest
+    environment:
+      - API_URL=http://api:3000/api
+      - API_KEY=${SSH_GATEWAY_API_KEY:-ssh_secret_api_token}
+      - SSH_PRIVATE_KEY=${SSH_PRIVATE_KEY}
+      - SSH_HOST_KEY=${SSH_HOST_KEY}
+      - SSH_GATEWAY_PORT=2222
+    networks:
+      - daytona-network
+    ports:
+      - '2222:2222'
+    restart: always
+
+  keycloak-db:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+    volumes:
+      - keycloak_db_data:/var/lib/postgresql/18/docker
+    networks:
+      - daytona-network
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U keycloak']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: start-dev --import-realm --http-enabled=true --hostname-strict=false --hostname=https://${KEYCLOAK_DOMAIN:-auth.example.com} --proxy-headers=xforwarded
+    environment:
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-keycloak}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN_USER:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HEALTH_ENABLED: 'true'
+      KC_HTTP_PORT: 8080
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+    networks:
+      - daytona-network
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          "exec 3<>/dev/tcp/127.0.0.1/8080;echo -e 'GET /health/ready HTTP/1.1\\r\\nhost: localhost\\r\\n\\r\\n' >&3;if [ $? -eq 0 ];then echo 'Health check successful';exit 0;else echo 'Health check failed';exit 1;fi",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  db:
+    image: postgres:18
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-daytona}
+      POSTGRES_USER: ${DB_USERNAME:-daytona}
+      POSTGRES_DB: ${DB_DATABASE:-daytona}
+    networks:
+      - daytona-network
+    volumes:
+      - db_data:/var/lib/postgresql/18/docker
+
+  redis:
+    image: redis:latest
+    networks:
+      - daytona-network
+
+  registry:
+    image: registry:2.8.2
+    restart: always
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: 'true'
+      REGISTRY_HTTP_ADDR: registry:6000
+    volumes:
+      - registry:/var/lib/registry
+    networks:
+      - daytona-network
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - daytona-network
+
+  nginx:
+    image: nginx:1.27
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl/certs:/etc/nginx/ssl:ro
+    networks:
+      - daytona-network
+    depends_on:
+      - api
+      - keycloak
+    restart: always
+
+volumes:
+  registry: {}
+  minio_data: {}
+  db_data: {}
+  keycloak_db_data: {}
+
+networks:
+  daytona-network:
+    driver: bridge

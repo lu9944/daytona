@@ -43,9 +43,11 @@ export function SelectedOrganizationProvider(props: Props) {
   useEffect(() => {
     if (!organizations.length) {
       setSelectedOrganizationId(null)
+      return
     }
     if (!selectedOrganizationId || !organizations.some((org) => org.id === selectedOrganizationId)) {
       const defaultOrg = organizations.find((org) => org.personal) || organizations[0]
+      if (!defaultOrg) return
       localStorage.setItem(LocalStorageKey.SelectedOrganizationId, defaultOrg.id)
       setSelectedOrganizationId(defaultOrg.id)
     }

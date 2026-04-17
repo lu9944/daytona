@@ -131,7 +131,7 @@ open_firewall_ports() {
 
 setup_directories() {
     info "Creating Daytona directory structure at ${DAYTONA_HOME}..."
-    mkdir -p "${DAYTONA_HOME}"/{conf/dex,conf/otel,conf/pgadmin4,conf/nginx,conf/ssl,conf/registry,data,logs}
+    mkdir -p "${DAYTONA_HOME}"/{conf/keycloak,conf/otel,conf/pgadmin4,conf/nginx,conf/ssl,conf/registry,data,logs}
 
     cp -f "${SCRIPT_DIR}/daytona/docker-compose.yml" "${DAYTONA_HOME}/"
     cp -f "${SCRIPT_DIR}/daytona/docker-compose-db.yml" "${DAYTONA_HOME}/"
@@ -143,10 +143,21 @@ setup_directories() {
     cp -f "${SCRIPT_DIR}/daytona/conf/registry/config.yml" "${DAYTONA_HOME}/conf/registry/" 2>/dev/null || true
 
     if [[ -f "${SCRIPT_DIR}/daytona/conf/nginx/nginx.conf" ]]; then
+        sed -i "s/DAYTONA_HOSTNAME_PLACEHOLDER/${DAYTONA_HOSTNAME}/g" "${SCRIPT_DIR}/daytona/conf/nginx/nginx.conf"
+        local HOSTNAME_ESCAPED
+        HOSTNAME_ESCAPED=$(echo "${DAYTONA_HOSTNAME}" | sed 's/\./\\./g')
+        sed -i "s/DAYTONA_HOSTNAME_ESCAPE/${HOSTNAME_ESCAPED}/g" "${SCRIPT_DIR}/daytona/conf/nginx/nginx.conf"
         cp -f "${SCRIPT_DIR}/daytona/conf/nginx/nginx.conf" "${DAYTONA_HOME}/conf/nginx/"
         info "Nginx configuration copied."
     else
         warn "nginx.conf not found in package, skipping."
+    fi
+
+    if [[ -f "${SCRIPT_DIR}/daytona/conf/keycloak/realm-export.json" ]]; then
+        sed -i "s/daytona\.example\.com/${DAYTONA_HOSTNAME}/g" "${SCRIPT_DIR}/daytona/conf/keycloak/realm-export.json"
+        sed -i "s/auth\.example\.com/auth.${DAYTONA_HOSTNAME}/g" "${SCRIPT_DIR}/daytona/conf/keycloak/realm-export.json"
+        cp -f "${SCRIPT_DIR}/daytona/conf/keycloak/realm-export.json" "${DAYTONA_HOME}/conf/keycloak/"
+        info "Keycloak realm configuration copied."
     fi
 
     if [[ -f "${SCRIPT_DIR}/daytona/conf/ssl/tls.crt" && -f "${SCRIPT_DIR}/daytona/conf/ssl/tls.key" ]]; then
@@ -191,34 +202,10 @@ DB_USERNAME=${DB_USERNAME}
 DB_DATABASE=${DB_DATABASE}
 REDIS_HOST=${REDIS_HOST}
 REDIS_PORT=${REDIS_PORT}
+KEYCLOAK_ADMIN_USER=${KEYCLOAK_ADMIN_USER}
+KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+KEYCLOAK_DB_PASSWORD=${KEYCLOAK_DB_PASSWORD}
 COMPOSEEOF
-
-    envsubst > "${DAYTONA_HOME}/conf/dex/config.yaml" <<'DEXEOF'
-issuer: https://${DAYTONA_HOSTNAME}/dex
-storage:
-  type: sqlite3
-  config:
-    file: /var/dex/dex.db
-
-web:
-  http: 0.0.0.0:5556
-  allowedOrigins: ['*']
-  allowedHeaders: ['x-requested-with']
-staticClients:
-  - id: daytona
-    redirectURIs:
-      - 'https://${DAYTONA_HOSTNAME}'
-      - 'https://${DAYTONA_HOSTNAME}/api/oauth2-redirect.html'
-      - 'https://${DAYTONA_HOSTNAME}:3009/callback'
-    name: 'Daytona'
-    public: true
-enablePasswordDB: true
-staticPasswords:
-  - email: 'dev@daytona.io'
-    hash: '$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W'
-    username: 'admin'
-    userID: '1234'
-DEXEOF
 
     envsubst > "${DAYTONA_HOME}/conf/pgadmin4/servers.json" <<'PGEOF'
 {
@@ -237,7 +224,6 @@ DEXEOF
 PGEOF
 
     echo "${DB_HOST}:${DB_PORT}:*:${DB_USERNAME}:${DB_PASSWORD}" > "${DAYTONA_HOME}/conf/pgadmin4/pgpass"
-    chmod 600 "${DAYTONA_HOME}/conf/pgadmin4/pgpass"
 
     if [[ "${UPGRADE_MODE}" == "true" && -f /tmp/daytona-env-backup ]]; then
         warn "Upgrade mode: merging preserved configuration..."
@@ -337,7 +323,7 @@ print_info() {
     info "=========================================="
     info "Dashboard    : https://${DAYTONA_HOSTNAME}/dashboard"
     info "API          : https://${DAYTONA_HOSTNAME}"
-    info "Dex (OIDC)   : https://${DAYTONA_HOSTNAME}/dex"
+    info "Keycloak     : https://${DAYTONA_HOSTNAME}:443 (Auth)"
     info "SSH Gateway  : ssh -p 2222 <token>@${DAYTONA_HOSTNAME}"
     info "MinIO        : http://${DAYTONA_HOSTNAME}:${MINIO_PORT}"
     info "pgAdmin      : http://${DAYTONA_HOSTNAME}:5050"

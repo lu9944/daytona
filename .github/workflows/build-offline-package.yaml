@@ -132,7 +132,7 @@ jobs:
         run: |
           docker pull postgres:18
           docker pull redis:latest
-          docker pull dexidp/dex:v2.42.0
+          docker pull quay.io/keycloak/keycloak:26.0
           docker pull registry:2.8.2
           docker pull joxit/docker-registry-ui:main
           docker pull minio/minio:latest
@@ -148,7 +148,7 @@ jobs:
           docker save \
             postgres:18 \
             redis:latest \
-            dexidp/dex:v2.42.0 \
+            quay.io/keycloak/keycloak:26.0 \
             registry:2.8.2 \
             joxit/docker-registry-ui:main \
             minio/minio:latest \
@@ -234,7 +234,7 @@ jobs:
           PKG_NAME="daytona-${VERSION}-x86_64-offline-installer"
           PKG_DIR="/tmp/${PKG_NAME}"
           rm -rf "${PKG_DIR}"
-          mkdir -p "${PKG_DIR}"/{docker/bin,docker/service,daytona/templates,daytona/conf/dex,daytona/conf/otel,daytona/conf/pgadmin4,daytona/conf/nginx,daytona/conf/registry,daytona/conf/ssl,images}
+          mkdir -p "${PKG_DIR}"/{docker/bin,docker/service,daytona/templates,daytona/conf/keycloak,daytona/conf/otel,daytona/conf/pgadmin4,daytona/conf/nginx,daytona/conf/registry,daytona/conf/ssl,images}
 
           cp deploy/offline/install.conf "${PKG_DIR}/"
           sed -i "s/^DAYTONA_VERSION=.*/DAYTONA_VERSION=${VERSION}/" "${PKG_DIR}/install.conf"
@@ -249,7 +249,7 @@ jobs:
           cp deploy/offline/daytona/docker-compose-db.yml "${PKG_DIR}/daytona/"
           cp deploy/offline/daytona/docker-compose-redis.yml "${PKG_DIR}/daytona/"
           cp deploy/offline/daytona/templates/daytona.env "${PKG_DIR}/daytona/templates/"
-          cp deploy/offline/daytona/conf/dex/config.yaml "${PKG_DIR}/daytona/conf/dex/"
+          cp deploy/offline/daytona/conf/keycloak/realm-export.json "${PKG_DIR}/daytona/conf/keycloak/"
           cp deploy/offline/daytona/conf/otel/otel-collector-config.yaml "${PKG_DIR}/daytona/conf/otel/"
           cp deploy/offline/daytona/conf/otel/collector-config.yaml "${PKG_DIR}/daytona/conf/otel/" 2>/dev/null || true
           cp deploy/offline/daytona/conf/pgadmin4/servers.json "${PKG_DIR}/daytona/conf/pgadmin4/"
