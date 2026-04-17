@@ -175,7 +175,7 @@ jobs:
   build-sandbox-images:
     runs-on: ubuntu-latest
     steps:
-      - name: Maximize build space
+      - name: Free disk space
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghcActions /opt/hostedtoolcache/CodeQL
           sudo docker image prune --all --force
@@ -184,28 +184,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          fetch-tags: true
-          fetch-depth: 0
           persist-credentials: false
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
-      - name: Build sandbox images
+      - name: Build sandbox-slim image only
         run: |
           SANDBOX_VER="${VERSION#v}"
-          docker build -t daytonaio/sandbox:${SANDBOX_VER} -t daytonaio/sandbox:${VERSION} \
-            -f images/sandbox/Dockerfile images/sandbox/
           docker build -t daytonaio/sandbox:${SANDBOX_VER}-slim -t daytonaio/sandbox:${VERSION}-slim \
             -f images/sandbox-slim/Dockerfile images/sandbox-slim/
 
-      - name: Export sandbox images
+      - name: Export sandbox-slim image
         run: |
           mkdir -p output
-          docker save \
-            daytonaio/sandbox:${VERSION} \
-            daytonaio/sandbox:${VERSION}-slim \
-            | gzip > output/sandbox-images.tar.gz
+          docker save daytonaio/sandbox:${VERSION}-slim | gzip > output/sandbox-images.tar.gz
 
       - name: Upload sandbox images
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
